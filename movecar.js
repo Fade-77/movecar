@@ -103,7 +103,15 @@ async function handleNotify(request, url, userKey) {
     const baseDomain = (typeof globalThis.EXTERNAL_URL !== 'undefined' && globalThis.EXTERNAL_URL) ? globalThis.EXTERNAL_URL.replace(/\/$/, "") : url.origin;
     const confirmUrl = baseDomain + "/owner-confirm?u=" + userKey;
 
-    let notifyText = "🚗 挪车请求【" + carTitle + "】\\n💬 留言: " + (body.message || '车旁有人等待');
+    // 获取当前时间并转为北京时间 (UTC+8) 用于防屏蔽时间戳，只取 时:分
+    const date = new Date();
+    const utc8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const hh = String(utc8Date.getUTCHours()).padStart(2, '0');
+    const mm = String(utc8Date.getUTCMinutes()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}`;
+
+    // 车牌号后加入时间戳
+    let notifyText = "🚗 挪车请求【" + carTitle + "】" + timeStr + "\n💬 留言: " + (body.message || '车旁有人等待');
     
     // 存储当前会话信息，有效期设为 30 分钟
     const statusData = { status: 'waiting', sessionId: sessionId };
@@ -117,7 +125,8 @@ async function handleNotify(request, url, userKey) {
     await MOVE_CAR_STATUS.put(lockKey, '1', { expirationTtl: CONFIG.RATE_LIMIT_TTL });
 
     const tasks = [];
-    if (ppToken) tasks.push(fetch('http://www.pushplus.plus/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: ppToken, title: "🚗 挪车请求：" + carTitle, content: notifyText.replace(/\\n/g, '<br>') + '<br><br><a href="' + confirmUrl + '" style="font-size:18px;color:#0093E9">【点击处理】</a>', template: 'html' }) }));
+    // 标题简化为仅"挪车请求"
+    if (ppToken) tasks.push(fetch('http://www.pushplus.plus/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: ppToken, title: "挪车请求", content: notifyText.replace(/\n/g, '<br>') + '<br><br><a href="' + confirmUrl + '" style="font-size:18px;color:#0093E9">【点击处理】</a>', template: 'html' }) }));
     if (barkUrl) tasks.push(fetch(barkUrl + "/" + encodeURIComponent('挪车请求') + "/" + encodeURIComponent(notifyText) + "?url=" + encodeURIComponent(confirmUrl)));
 
     await Promise.all(tasks);
@@ -201,7 +210,7 @@ function renderQRPage(origin, userKey) {
 function renderMainPage(origin, userKey) {
   const phone = getUserConfig(userKey, 'PHONE_NUMBER') || '';
   const carTitle = getUserConfig(userKey, 'CAR_TITLE') || '车主';
-  const phoneHtml = phone ? '<a href="tel:' + phone + '" class="btn-phone">📞 拨打车主电话</a>' : '';
+  const phoneHtml = phone ? '<a href="tel:' + phone + '" class="btn-phone">📞 紧急拨打车主电话</a>' : '';
 
   return new Response(`
 <!DOCTYPE html>
@@ -212,56 +221,88 @@ function renderMainPage(origin, userKey) {
   <title>挪车通知</title>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
-    body { font-family: -apple-system, sans-serif; background: linear-gradient(160deg, #0093E9 0%, #80D0C7 100%); min-height: 100vh; padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 15px; }
-    .card { background: white; border-radius: 24px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .header { text-align: center; }
-    .icon-wrap { width: 64px; height: 64px; background: #0093E9; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; font-size: 32px; color: white; }
-    textarea { width: 100%; min-height: 90px; border: 1px solid #eee; border-radius: 14px; padding: 15px; font-size: 16px; outline: none; margin-top: 10px; background:#fcfcfc; resize:none; }
-    .tag { display: inline-block; background: #f1f5f9; padding: 10px 16px; border-radius: 20px; font-size: 14px; margin: 5px 3px; cursor: pointer; color:#475569; }
-    .btn-main { background: #0093E9; color: white; border: none; padding: 18px; border-radius: 18px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
-    .btn-phone { background: #ef4444; color: white; border: none; padding: 15px; border-radius: 15px; text-decoration: none; text-align: center; font-weight: bold; display: block; margin-top: 10px; }
+    /* 底层背景保留原版浅蓝渐变 */
+    body { font-family: -apple-system, sans-serif; background: linear-gradient(160deg, #0093E9 0%, #80D0C7 100%); min-height: 100vh; padding: 20px; display: flex; justify-content: center; align-items: center; }
+    .container { width: 100%; max-width: 420px; }
+    
+    /* 核心卡片设计 - 融合 new_monitor 风格 */
+    .dark-card { background: #101825; border-radius: 16px; padding: 25px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid #2b3a4f; color: #fff; }
+    
+    /* 头部区域 */
+    .header { text-align: center; border-bottom: 1px solid #2b3a4f; padding-bottom: 20px; margin-bottom: 20px; }
+    .icon-wrap { width: 64px; height: 64px; background: rgba(0, 147, 233, 0.2); border: 1px solid #0093E9; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; font-size: 32px; }
+    .title { color: #ffd700; font-size: 22px; font-weight: bold; letter-spacing: 1px; }
+    .subtitle { color: #9aa5b6; font-size: 13px; margin-top: 6px; }
+
+    /* 输入框 */
+    textarea { width: 100%; min-height: 85px; background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 14px; font-size: 15px; color: #fff; outline: none; margin-bottom: 15px; resize: none; transition: border 0.3s; }
+    textarea:focus { border-color: #00bfff; }
+    textarea::placeholder { color: #475569; }
+    
+    /* 标签区域：利用 flex 强制同行并平分宽度 */
+    .tags-wrap { display: flex; gap: 8px; margin-bottom: 20px; }
+    .tag { flex: 1; text-align: center; background: #1e293b; border: 1px solid #334155; padding: 10px 0; border-radius: 8px; font-size: 13px; color: #cbd5e1; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+    .tag:active { background: #334155; color: #fff; border-color: #475569; }
+
+    /* 定位状态 */
+    .loc-status { text-align: center; font-size: 13px; color: #9aa5b6; margin-bottom: 15px; border-top: 1px solid #2b3a4f; padding-top: 15px; }
+
+    /* 按钮样式 */
+    .btn-main { background: #0093E9; color: white; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; transition: 0.2s; }
+    .btn-main:active { opacity: 0.8; }
+    .btn-main:disabled { background: #334155; color: #9aa5b6; cursor: not-allowed; }
+    
+    .btn-phone { background: rgba(239, 68, 68, 0.1); color: #ff4d4d; border: 1px solid rgba(239, 68, 68, 0.3); padding: 16px; border-radius: 12px; text-decoration: none; text-align: center; font-weight: bold; display: block; margin-top: 12px; }
+    
     .hidden { display: none !important; }
+    
+    /* 成功界面 */
+    .success-icon { font-size: 64px; margin-bottom: 15px; }
+    .feedback-box { border: 1px solid #00e676; background: rgba(0, 230, 118, 0.1); border-radius: 12px; padding: 20px; margin-top: 20px; }
     .map-links { display: flex; gap: 10px; margin-top: 15px; }
-    .map-btn { flex: 1; padding: 14px; border-radius: 14px; text-align: center; text-decoration: none; color: white; font-weight: bold; }
-    .amap { background: #1890ff; } .apple { background: #000; }
+    .map-btn { flex: 1; padding: 12px; border-radius: 10px; text-align: center; text-decoration: none; color: white; font-size: 14px; font-weight: bold; }
+    .amap { background: #1890ff; } .apple { background: #222; border: 1px solid #444; }
   </style>
 </head>
 <body>
   <div class="container" id="mainView">
-    <div class="card header">
-      <div class="icon-wrap">🚗</div>
-      <h2 style="color:#1e293b">呼叫 ${carTitle}</h2>
-      <p style="color:#64748b; font-size:14px; margin-top:5px">提示：车主将收到即时提醒</p>
-    </div>
-    <div class="card">
+    <div class="dark-card">
+      <div class="header">
+        <div class="icon-wrap">🚗</div>
+        <div class="title">呼叫 ${carTitle}</div>
+        <div class="subtitle">提示：车主将收到即时提醒</div>
+      </div>
+      
       <textarea id="msgInput" placeholder="请输入留言..."></textarea>
-      <div style="margin-top:5px">
+      
+      <div class="tags-wrap">
         <div class="tag" onclick="setTag('麻烦挪下车，谢谢')">🚧 挡路了</div>
         <div class="tag" onclick="setTag('临时停靠，请包涵')">⏱️ 临停</div>
         <div class="tag" onclick="setTag('有急事外出，速来')">🏃 急事</div>
       </div>
+      
+      <div class="loc-status" id="locStatus">定位请求中...</div>
+      
+      <button id="notifyBtn" class="btn-main" onclick="sendNotify()">🔔 发送通知</button>
     </div>
-    <div class="card" id="locStatus" style="font-size:13px; color:#94a3b8; text-align:center;">定位请求中...</div>
-    <button id="notifyBtn" class="btn-main" onclick="sendNotify()">🔔 发送通知</button>
   </div>
 
   <div class="container hidden" id="successView">
-    <div class="card" style="text-align:center">
-      <div style="font-size:64px; margin-bottom:15px">📧</div>
-      <h2 style="color:#1e293b">通知已送达</h2>
-      <p style="color:#64748b">车主已收到挪车请求，请在车旁稍候</p>
-    </div>
-    <div id="ownerFeedback" class="card hidden" style="text-align:center; border: 2.5px solid #10b981;">
-      <div style="font-size:40px">👨‍✈️</div>
-      <h3 style="color:#059669">车主回复：马上到</h3>
-      <div class="map-links">
-        <a id="ownerAmap" href="#" class="map-btn amap">高德地图</a>
-        <a id="ownerApple" href="#" class="map-btn apple">苹果地图</a>
+    <div class="dark-card" style="text-align:center">
+      <div class="success-icon">📧</div>
+      <div class="title" style="color:#00bfff;">通知已送达</div>
+      <div class="subtitle" style="margin-bottom:5px;">车主已收到挪车请求，请在车旁稍候</div>
+      
+      <div id="ownerFeedback" class="feedback-box hidden">
+        <div style="font-size:40px; margin-bottom:10px">👨‍✈️</div>
+        <div style="color:#00e676; font-size:18px; font-weight:bold;">车主回复：马上到</div>
+        <div class="map-links">
+          <a id="ownerAmap" href="#" class="map-btn amap">高德地图</a>
+          <a id="ownerApple" href="#" class="map-btn apple">苹果地图</a>
+        </div>
       </div>
-    </div>
-    <div>
-      <button class="btn-main" style="background:#f59e0b; margin-top:10px;" onclick="location.reload()">🔄 刷新状态</button>
+      
+      <button class="btn-main" style="background:#334155; margin-top:20px;" onclick="location.reload()">🔄 刷新状态</button>
       ${phoneHtml}
     </div>
   </div>
@@ -283,7 +324,7 @@ function renderMainPage(origin, userKey) {
         navigator.geolocation.getCurrentPosition(p => {
           userLoc = { lat: p.coords.latitude, lng: p.coords.longitude };
           document.getElementById('locStatus').innerText = '📍 位置已锁定';
-          document.getElementById('locStatus').style.color = '#10b981';
+          document.getElementById('locStatus').style.color = '#00e676'; // 改为新主题的翠绿色
         }, () => {
           document.getElementById('locStatus').innerText = '📍 无法获取精确位置';
         });
@@ -365,24 +406,42 @@ function renderOwnerPage(userKey) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>挪车处理</title>
   <style>
-    body { font-family: sans-serif; background: #4f46e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin:0; padding:20px; }
-    .card { background: white; padding: 35px 25px; border-radius: 30px; text-align: center; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
-    .btn { background: #10b981; color: white; border: none; width: 100%; padding: 20px; border-radius: 18px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 20px; box-shadow: 0 5px 15px rgba(16,185,129,0.3); }
-    .map-box { display: none; background: #f8fafc; padding: 20px; border-radius: 20px; margin-top: 15px; border: 1px solid #e2e8f0; }
-    .map-btn { display: inline-block; padding: 12px 18px; background: #2563eb; color: white; text-decoration: none; border-radius: 12px; margin: 5px; font-size: 14px; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+    /* 保留原版的紫色背景 */
+    body { font-family: -apple-system, sans-serif; background: #4f46e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    
+    /* 采用深色卡片主题 */
+    .dark-card { background: #101825; padding: 35px 25px; border-radius: 16px; text-align: center; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid #2b3a4f; color: #fff; }
+    
+    .icon { font-size: 54px; margin-bottom: 10px; }
+    .title { color: #ffd700; font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+    .subtitle { color: #9aa5b6; font-size: 15px; margin-bottom: 20px; }
+    
+    /* 地图框的暗色处理 */
+    .map-box { display: none; background: #0f172a; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
+    .map-title { font-size: 14px; color: #00bfff; margin-bottom: 15px; font-weight: bold; }
+    .map-links { display: flex; gap: 10px; }
+    .map-btn { flex: 1; padding: 12px; background: #1890ff; color: white; text-decoration: none; border-radius: 10px; font-size: 14px; font-weight: bold; }
+    
+    .btn-confirm { background: #00e676; color: #000; border: none; width: 100%; padding: 18px; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(0, 230, 118, 0.15); }
+    .btn-confirm:disabled { background: #334155; color: #9aa5b6; box-shadow: none; cursor: not-allowed; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div style="font-size:50px">📣</div>
-    <h2 style="margin:15px 0; color:#1e293b">${carTitle}</h2>
-    <p style="color:#64748b">有人正在车旁等您，请确认：</p>
+  <div class="dark-card">
+    <div class="icon">📣</div>
+    <div class="title">${carTitle}</div>
+    <div class="subtitle">有人正在车旁等您，请确认：</div>
+    
     <div id="mapArea" class="map-box">
-      <p style="font-size:14px; color:#2563eb; margin-bottom:12px; font-weight:bold">对方实时位置 📍</p>
-      <a id="amapLink" href="#" class="map-btn">高德地图</a>
-      <a id="appleLink" href="#" class="map-btn" style="background:#000">苹果地图</a>
+      <div class="map-title">对方实时位置 📍</div>
+      <div class="map-links">
+        <a id="amapLink" href="#" class="map-btn">高德地图</a>
+        <a id="appleLink" href="#" class="map-btn" style="background:#222; border: 1px solid #444;">苹果地图</a>
+      </div>
     </div>
-    <button id="confirmBtn" class="btn" onclick="confirmMove()">🚀 我已知晓，马上过去</button>
+    
+    <button id="confirmBtn" class="btn-confirm" onclick="confirmMove()">🚀 我已知晓，马上过去</button>
   </div>
   <script>
     const userKey = "${userKey}";
@@ -397,7 +456,8 @@ function renderOwnerPage(userKey) {
     };
     async function confirmMove() {
       const btn = document.getElementById('confirmBtn');
-      btn.innerText = '已告知对方 ✓'; btn.disabled = true; btn.style.background = '#94a3b8';
+      btn.innerText = '已告知对方 ✓'; 
+      btn.disabled = true; 
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(async p => {
           await fetch('/api/owner-confirm?u=' + userKey, { method: 'POST', body: JSON.stringify({ location: {lat: p.coords.latitude, lng: p.coords.longitude} }) });
