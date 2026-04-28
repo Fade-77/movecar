@@ -1,6 +1,6 @@
 /**
- * MoveCar 多用户智能挪车系统 - v2.1
- * 优化：30分钟断点续传 + 域名优先级二维码 + 多用户隔离
+ * MoveCar 多用户智能挪车系统 - v2.1 (优化版)
+ * 优化：30分钟断点续传 + 域名优先级二维码 + 多用户隔离 + 区分大小写字母与数字混合ID
  */
 
 addEventListener('fetch', event => {
@@ -17,7 +17,9 @@ async function handleRequest(request) {
   const url = new URL(request.url)
   const path = url.pathname
   const userParam = url.searchParams.get('u') || 'default';
-  const userKey = userParam.toLowerCase();
+  
+  // 移除 .toLowerCase()，完全保留传入的字母大小写和数字
+  const userKey = userParam; 
 
   // 1. 二维码生成工具
   if (path === '/qr') return renderQRPage(url.origin, userKey);
@@ -42,7 +44,8 @@ async function handleRequest(request) {
 
 /** 配置读取 **/
 function getUserConfig(userKey, envPrefix) {
-  const specificKey = envPrefix + "_" + userKey.toUpperCase();
+  // 移除 .toUpperCase()，实现精准匹配大小写
+  const specificKey = envPrefix + "_" + userKey;
   if (typeof globalThis[specificKey] !== 'undefined') return globalThis[specificKey];
   if (typeof globalThis[envPrefix] !== 'undefined') return globalThis[envPrefix];
   return null;
